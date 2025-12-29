@@ -1,13 +1,16 @@
 /**
  * Indian Income Tax Calculator Utility
  * Implements tax calculation for both Old and New Tax Regimes
- * Updated for FY 2025-26 behavior:
+ * Updated for FY 2025-26 (AY 2026-27) based on ClearTax reference
+ * Reference: https://cleartax.in/paytax/taxcalculator
+ * 
+ * FY 2025-26 Updates:
  *  - Old regime: 50,000 standard deduction; 80C/80D/home-loan; HRA exemption (min-of-three)
- *  - New regime: ONLY standard deduction of 75,000; no other deductions/HRA
- *  - New regime default slabs unchanged from Budget 2023
+ *  - New regime: Standard deduction of 75,000; updated tax slabs with new rates
+ *  - New regime rebate: Rs. 60,000 (no tax for income up to Rs. 12 lakhs)
  */
 
-// Tax slabs for different age groups (FY 2023-24)
+// Tax slabs for different age groups (FY 2025-26)
 const TAX_SLABS = {
   // Below 60 years
   below60: {
@@ -18,12 +21,13 @@ const TAX_SLABS = {
       { min: 1000000, max: Infinity, rate: 30 }
     ],
     new: [
-      { min: 0, max: 300000, rate: 0 },
-      { min: 300000, max: 600000, rate: 5 },
-      { min: 600000, max: 900000, rate: 10 },
-      { min: 900000, max: 1200000, rate: 15 },
-      { min: 1200000, max: 1500000, rate: 20 },
-      { min: 1500000, max: Infinity, rate: 30 }
+      { min: 0, max: 400000, rate: 0 },
+      { min: 400000, max: 800000, rate: 5 },
+      { min: 800000, max: 1200000, rate: 10 },
+      { min: 1200000, max: 1600000, rate: 15 },
+      { min: 1600000, max: 2000000, rate: 20 },
+      { min: 2000000, max: 2400000, rate: 25 },
+      { min: 2400000, max: Infinity, rate: 30 }
     ]
   },
   // 60-80 years
@@ -35,12 +39,13 @@ const TAX_SLABS = {
       { min: 1000000, max: Infinity, rate: 30 }
     ],
     new: [
-      { min: 0, max: 300000, rate: 0 },
-      { min: 300000, max: 600000, rate: 5 },
-      { min: 600000, max: 900000, rate: 10 },
-      { min: 900000, max: 1200000, rate: 15 },
-      { min: 1200000, max: 1500000, rate: 20 },
-      { min: 1500000, max: Infinity, rate: 30 }
+      { min: 0, max: 400000, rate: 0 },
+      { min: 400000, max: 800000, rate: 5 },
+      { min: 800000, max: 1200000, rate: 10 },
+      { min: 1200000, max: 1600000, rate: 15 },
+      { min: 1600000, max: 2000000, rate: 20 },
+      { min: 2000000, max: 2400000, rate: 25 },
+      { min: 2400000, max: Infinity, rate: 30 }
     ]
   },
   // Above 80 years
@@ -51,12 +56,13 @@ const TAX_SLABS = {
       { min: 1000000, max: Infinity, rate: 30 }
     ],
     new: [
-      { min: 0, max: 300000, rate: 0 },
-      { min: 300000, max: 600000, rate: 5 },
-      { min: 600000, max: 900000, rate: 10 },
-      { min: 900000, max: 1200000, rate: 15 },
-      { min: 1200000, max: 1500000, rate: 20 },
-      { min: 1500000, max: Infinity, rate: 30 }
+      { min: 0, max: 400000, rate: 0 },
+      { min: 400000, max: 800000, rate: 5 },
+      { min: 800000, max: 1200000, rate: 10 },
+      { min: 1200000, max: 1600000, rate: 15 },
+      { min: 1600000, max: 2000000, rate: 20 },
+      { min: 2000000, max: 2400000, rate: 25 },
+      { min: 2400000, max: Infinity, rate: 30 }
     ]
   }
 };
@@ -132,8 +138,10 @@ const calculateTaxFromSlabs = (taxableIncome, slabs) => {
 
 /**
  * Calculate rebate under section 87A
+ * Reference: https://cleartax.in/paytax/taxcalculator
  * @param {number} tax - Tax amount before rebate
  * @param {number} taxableIncome - Taxable income
+ * @param {regime} regime - Tax regime (old/new)
  * @returns {number} Rebate amount
  */
 const calculateRebate87A = (tax, taxableIncome, regime) => {
@@ -145,11 +153,12 @@ const calculateRebate87A = (tax, taxableIncome, regime) => {
     return 0;
   }
 
-  // New regime: effective full rebate up to ₹7,00,000 taxable income (simplified)
+  // New regime (FY 2025-26): Rebate of ₹60,000
+  // No income tax for income up to ₹12 Lakhs (1,200,000)
   if (regime === 'new') {
-    if (taxableIncome <= 700000) {
-      // Rebate equals the tax amount to reduce liability to zero
-      return Math.min(tax, tax);
+    if (taxableIncome <= 1200000) {
+      // Rebate of ₹60,000 or tax amount, whichever is lower
+      return Math.min(tax, 60000);
     }
     return 0;
   }
@@ -157,12 +166,44 @@ const calculateRebate87A = (tax, taxableIncome, regime) => {
 };
 
 /**
+ * Calculate surcharge based on total income
+ * Reference: https://cleartax.in/paytax/taxcalculator
+ * @param {number} totalIncome - Total income (before deductions)
+ * @param {number} taxAfterRebate - Tax amount after rebate
+ * @param {string} regime - Tax regime (old/new)
+ * @returns {number} Surcharge amount
+ */
+const calculateSurcharge = (totalIncome, taxAfterRebate, regime) => {
+  if (totalIncome > 50000000) {
+    // Above Rs. 5 crore
+    if (regime === 'new') {
+      // New regime: 25% surcharge (reduced from 37%)
+      return taxAfterRebate * 0.25;
+    } else {
+      // Old regime: 37% surcharge
+      return taxAfterRebate * 0.37;
+    }
+  } else if (totalIncome > 20000000) {
+    // Above Rs. 2 crore and up to Rs. 5 crore: 25% surcharge
+    return taxAfterRebate * 0.25;
+  } else if (totalIncome > 10000000) {
+    // Above Rs. 1 crore and up to Rs. 2 crore: 15% surcharge
+    return taxAfterRebate * 0.15;
+  } else if (totalIncome > 5000000) {
+    // Above Rs. 50 lakh and up to Rs. 1 crore: 10% surcharge
+    return taxAfterRebate * 0.10;
+  }
+  return 0;
+};
+
+/**
  * Calculate health and education cess
- * @param {number} tax - Tax amount after rebate
+ * Reference: https://cleartax.in/paytax/taxcalculator
+ * @param {number} tax - Tax amount after rebate and surcharge
  * @returns {number} Cess amount (4%)
  */
 const calculateCess = (tax) => {
-  return tax * 0.04; // 4% cess
+  return tax * 0.04; // 4% cess on tax + surcharge
 };
 
 /**
@@ -222,9 +263,13 @@ export const calculateTax = (inputs) => {
   const rebate = calculateRebate87A(totalTax, taxableIncome, regime);
   const taxAfterRebate = Math.max(0, totalTax - rebate);
   
-  // Calculate cess
-  const cess = calculateCess(taxAfterRebate);
-  const finalTax = taxAfterRebate + cess;
+  // Calculate surcharge (based on total income, not taxable income)
+  const surcharge = calculateSurcharge(grossSalary, taxAfterRebate, regime);
+  const taxAfterSurcharge = taxAfterRebate + surcharge;
+  
+  // Calculate cess (4% on tax + surcharge)
+  const cess = calculateCess(taxAfterSurcharge);
+  const finalTax = taxAfterSurcharge + cess;
   
   // Calculate take-home salary
   const monthlyTakeHome = (grossSalary - finalTax) / 12;
@@ -255,6 +300,8 @@ export const calculateTax = (inputs) => {
       taxBeforeRebate: totalTax,
       rebate,
       taxAfterRebate,
+      surcharge,
+      taxAfterSurcharge,
       cess,
       finalTax,
       monthlyTakeHome
@@ -273,6 +320,8 @@ export const calculateTax = (inputs) => {
     taxBeforeRebate: totalTax,
     rebate,
     taxAfterRebate,
+    surcharge,
+    taxAfterSurcharge,
     cess,
     finalTax,
     monthlyTakeHome,
